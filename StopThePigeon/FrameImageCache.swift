@@ -29,9 +29,12 @@ final class FrameImageCache: @unchecked Sendable {
         return image
     }
 
+    /// Includes the file's modification time, so a replaced file is never shown stale.
     private func key(_ url: URL, _ size: Int, _ effect: FrameEffect?) -> NSString {
         let effectKey = effect?.isActive == true ? String(effect.hashValue) : "none"
-        return "\(size)|\(effectKey)|\(url.path)" as NSString
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        return "\(size)|\(effectKey)|\(modified)|\(url.path)" as NSString
     }
 }
 

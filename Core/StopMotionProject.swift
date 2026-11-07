@@ -12,6 +12,8 @@ struct StopMotionProject: Equatable {
     var fps: Int
     var frames: [String]
     var greenScreen = GreenScreenSettings()
+    /// Highest frame number ever used, so numbers aren't reused after a delete.
+    var lastFrameNumber = 0
 
     var name: String { folder.lastPathComponent }
     var frameURLs: [URL] { frames.map(url(for:)) }
@@ -43,6 +45,7 @@ struct StopMotionProject: Equatable {
                 project.isContainedFrame($0) && FileManager.default.fileExists(atPath: project.url(for: $0).path)
             }
             project.greenScreen = manifest.greenScreen ?? GreenScreenSettings()
+            project.lastFrameNumber = max(manifest.lastFrameNumber ?? 0, 0)
             if let backdrop = project.greenScreen.backdrop,
                !(project.isContainedFrame(backdrop) && FileManager.default.fileExists(atPath: project.url(for: backdrop).path)) {
                 project.greenScreen.backdrop = nil
@@ -61,7 +64,7 @@ struct StopMotionProject: Equatable {
     func save() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(Manifest(version: 1, fps: fps, frames: frames, greenScreen: greenScreen))
+        let data = try encoder.encode(Manifest(version: 1, fps: fps, frames: frames, greenScreen: greenScreen, lastFrameNumber: lastFrameNumber))
         try data.write(to: folder.appendingPathComponent(Self.manifestName), options: .atomic)
     }
 
@@ -70,8 +73,10 @@ struct StopMotionProject: Equatable {
     /// Writes image data as a new frame at the end of the sequence and saves the manifest.
     @discardableResult
     mutating func appendFrame(data: Data, fileExtension: String) throws -> String {
-        let name = String(format: "frame-%04d.%@", try nextFrameNumber(), fileExtension)
+        let number = try nextFrameNumber()
+        let name = String(format: "frame-%04d.%@", number, fileExtension)
         try data.write(to: url(for: name), options: .withoutOverwriting)
+        lastFrameNumber = number
         frames.append(name)
         try save()
         return name
@@ -166,6 +171,7 @@ struct StopMotionProject: Equatable {
         var fps: Int
         var frames: [String]
         var greenScreen: GreenScreenSettings?
+        var lastFrameNumber: Int?
     }
 
     private static func imageFiles(in folder: URL) throws -> [String] {
@@ -174,15 +180,24 @@ struct StopMotionProject: Equatable {
         }
     }
 
-    /// One higher than any "frame-NNNN" file in the folder, so new files never collide
-    /// and sort in capture order in Finder.
+    /// One higher than any frame number used before: in the manifest, in the folder, or
+    /// in "Deleted Frames". Reusing a deleted frame's name would show its cached image and
+    /// clash if it were restored. New files also sort in capture order in Finder.
     private func nextFrameNumber() throws -> Int {
-        let numbers = try Self.imageFiles(in: folder).compactMap { name -> Int? in
-            let stem = (name as NSString).deletingPathExtension
-            guard stem.hasPrefix("frame-") else { return nil }
-            return Int(stem.dropFirst("frame-".count))
+        let deletedFolder = folder.appendingPathComponent(Self.deletedFolderName)
+        var names = try Self.imageFiles(in: folder)
+        if FileManager.default.fileExists(atPath: deletedFolder.path) {
+            names += try Self.imageFiles(in: deletedFolder)
         }
-        return (numbers.max() ?? 0) + 1
+        let numbers = names.compactMap(Self.frameNumber(in:))
+        return max(numbers.max() ?? 0, lastFrameNumber) + 1
+    }
+
+    /// The number in "frame-NNNN.jpg" or a deleted copy such as "frame-NNNN-1a2b3c4d.jpg".
+    static func frameNumber(in name: String) -> Int? {
+        let stem = (name as NSString).deletingPathExtension
+        guard stem.hasPrefix("frame-") else { return nil }
+        return Int(stem.dropFirst("frame-".count).prefix { $0.isNumber })
     }
 }
 
