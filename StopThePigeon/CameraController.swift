@@ -42,6 +42,10 @@ final class CameraController {
     private var inFlightCaptures: [Int64: PhotoCaptureDelegate] = [:]
     private var observers: [NSObjectProtocol] = []
     private var healthTimer: Timer?
+    /// The format chosen for the current device, and how often it has had to be
+    /// restored after the camera switched modes by itself. Only touched on `sessionQueue`.
+    @ObservationIgnored nonisolated(unsafe) private var preferredFormat: AVCaptureDevice.Format?
+    @ObservationIgnored nonisolated(unsafe) private var formatRestores = 0
     private var isReconnecting = false
 
     var selectedDevice: AVCaptureDevice? {
@@ -121,14 +125,12 @@ final class CameraController {
                     session.sessionPreset = .photo
                 }
                 session.commitConfiguration()
+                self.preferredFormat = format
+                self.formatRestores = 0
 
-                if let largest = Self.largestPhotoDimensions(in: device.activeFormat) {
-                    photoOutput.maxPhotoDimensions = largest
-                }
                 if !session.isRunning { session.startRunning() }
 
-                let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
-                let photo = photoOutput.maxPhotoDimensions
+                let info = Self.syncFormat(device: device, photoOutput: photoOutput, restoring: nil)
                 let live = Self.isLive(session: session, photoOutput: photoOutput)
                 Task { @MainActor in
                     self.isReconnecting = false
@@ -136,8 +138,7 @@ final class CameraController {
                         self.status = .disconnected(deviceName)
                         return
                     }
-                    self.videoAspect = dims.height > 0 ? Double(dims.width) / Double(dims.height) : 4.0 / 3.0
-                    self.photoSizeDescription = "\(photo.width) × \(photo.height)"
+                    self.apply(info)
                     self.status = .running
                     self.refreshCapabilities()
                     self.refreshEffectsWarning()
@@ -159,6 +160,52 @@ final class CameraController {
         return connection.isEnabled && connection.isActive
     }
 
+    // MARK: Format
+
+    struct FormatInfo {
+        var videoAspect: Double
+        var photoDimensions: CMVideoDimensions
+    }
+
+    /// Makes the photo output's size match the device's *current* format. The camera can
+    /// switch formats by itself (for example after the iPhone locks), and capturing with
+    /// a size the active format doesn't support throws. With `restoring`, first switches
+    /// back to that format.
+    nonisolated private static func syncFormat(
+        device: AVCaptureDevice,
+        photoOutput: AVCapturePhotoOutput,
+        restoring preferred: AVCaptureDevice.Format?
+    ) -> FormatInfo? {
+        if let preferred, device.activeFormat != preferred, device.formats.contains(preferred) {
+            _ = SPCatchException {
+                if (try? device.lockForConfiguration()) != nil {
+                    device.activeFormat = preferred
+                    device.unlockForConfiguration()
+                }
+            }
+        }
+        let format = device.activeFormat
+        guard let largest = largestPhotoDimensions(in: format) else { return nil }
+        let current = photoOutput.maxPhotoDimensions
+        if current.width != largest.width || current.height != largest.height {
+            if SPCatchException({ photoOutput.maxPhotoDimensions = largest }) != nil { return nil }
+        }
+        let video = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+        let aspect = video.height > 0 ? Double(video.width) / Double(video.height) : 4.0 / 3.0
+        return FormatInfo(videoAspect: aspect, photoDimensions: largest)
+    }
+
+    private func apply(_ info: FormatInfo?) {
+        guard let info else { return }
+        if videoAspect != info.videoAspect { videoAspect = info.videoAspect }
+        let description = "\(info.photoDimensions.width) × \(info.photoDimensions.height)"
+        if photoSizeDescription != description { photoSizeDescription = description }
+    }
+
+    nonisolated private static func currentDevice(of session: AVCaptureSession) -> AVCaptureDevice? {
+        session.inputs.compactMap { ($0 as? AVCaptureDeviceInput)?.device }.first
+    }
+
     // MARK: Connection health
 
     /// Marks the camera disconnected if video has stopped, and retries while it's away.
@@ -169,8 +216,20 @@ final class CameraController {
             let session = session
             let photoOutput = photoOutput
             sessionQueue.async {
-                guard !Self.isLive(session: session, photoOutput: photoOutput) else { return }
-                Task { @MainActor in self.handleLostConnection() }
+                guard Self.isLive(session: session, photoOutput: photoOutput) else {
+                    Task { @MainActor in self.handleLostConnection() }
+                    return
+                }
+                guard let device = Self.currentDevice(of: session) else { return }
+                // Restore the chosen format if the camera drifted, but give up after a few
+                // attempts in case the camera insists, rather than restarting video forever.
+                var preferred = self.preferredFormat
+                if let wanted = preferred, device.activeFormat != wanted {
+                    self.formatRestores += 1
+                    if self.formatRestores > 3 { preferred = nil }
+                }
+                let info = Self.syncFormat(device: device, photoOutput: photoOutput, restoring: preferred)
+                Task { @MainActor in self.apply(info) }
             }
         case .disconnected:
             guard !isReconnecting, devices.contains(where: { $0.uniqueID == id }) else { return }
@@ -200,7 +259,6 @@ final class CameraController {
         let settings = useJPEG
             ? AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
             : AVCapturePhotoSettings()
-        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
 
         let data: Data = try await withCheckedThrowingContinuation { continuation in
             let delegate = PhotoCaptureDelegate { [weak self] result in
@@ -216,10 +274,18 @@ final class CameraController {
                     Task { @MainActor in self.handleLostConnection() }
                     return
                 }
-                // The connection can still drop between the check and the call.
+                // Size the photo for the format that's active right now.
+                if let device = Self.currentDevice(of: session) {
+                    let info = Self.syncFormat(device: device, photoOutput: photoOutput, restoring: nil)
+                    if let dims = info?.photoDimensions { settings.maxPhotoDimensions = dims }
+                    Task { @MainActor in self.apply(info) }
+                }
+                // Anything AVFoundation still rejects becomes an error message, not a crash.
                 if let exception = SPCatchException({ photoOutput.capturePhoto(with: settings, delegate: delegate) }) {
                     delegate.finish(.failure(CameraError.captureFailed(exception.reason ?? exception.name.rawValue)))
-                    Task { @MainActor in self.handleLostConnection() }
+                    if !Self.isLive(session: session, photoOutput: photoOutput) {
+                        Task { @MainActor in self.handleLostConnection() }
+                    }
                 }
             }
             // If the camera vanishes mid-capture the delegate may never be called.
