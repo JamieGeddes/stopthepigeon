@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var model: AppModel
+    @State private var showSplash = true
 
     var body: some View {
         HStack(spacing: 0) {
@@ -31,7 +32,34 @@ struct ContentView: View {
         ) { _ in
             Button("OK") { model.errorMessage = nil }
         } message: { Text($0) }
-        .task { await model.launch() }
+        .overlay {
+            if showSplash {
+                SplashView(status: splashStatus)
+                    .onTapGesture { dismissSplash() }
+                    .transition(.opacity)
+            }
+        }
+        .task {
+            // Show at least one full swoop of the net, then wait for the camera
+            // (up to 5 seconds) so the main window appears ready to shoot.
+            async let minimumTime: Void = Task.sleep(for: .seconds(PigeonChaseScene.period))
+            await model.launch()
+            try? await minimumTime
+            let deadline = Date.now.addingTimeInterval(5)
+            while showSplash, model.camera.status == .starting, Date.now < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            dismissSplash()
+        }
+    }
+
+    private var splashStatus: String {
+        model.camera.status == .starting ? "Starting camera…" : "Ready"
+    }
+
+    private func dismissSplash() {
+        guard showSplash else { return }
+        withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
     }
 }
 
