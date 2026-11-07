@@ -5,6 +5,9 @@ struct SplashView: View {
     var status: String
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The animation runs from when the splash appears, so it always starts with the
+    /// net winding up rather than part-way through a swoop.
+    @State private var start = Date.now
 
     var body: some View {
         ZStack {
@@ -15,7 +18,7 @@ struct SplashView: View {
                     // With reduced motion, hold the frame where the pigeon is mid-hop.
                     let time = reduceMotion
                         ? PigeonChaseScene.period * 0.5
-                        : timeline.date.timeIntervalSinceReferenceDate
+                        : timeline.date.timeIntervalSince(start)
                     Canvas { context, size in
                         PigeonChaseScene.draw(in: &context, size: size, time: time)
                     }
