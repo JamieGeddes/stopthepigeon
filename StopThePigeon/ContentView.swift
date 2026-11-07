@@ -104,6 +104,13 @@ private struct CameraStatusOverlay: View {
             EmptyView()
         case .starting:
             ProgressView("Starting camera…").foregroundStyle(.white)
+        case .disconnected(let name):
+            message(
+                "\(name) disconnected",
+                "Unlock your iPhone and keep it close to the Mac. It reconnects automatically."
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.black.opacity(0.6))
         case .noCamera:
             message("No camera found", "Bring your iPhone close to the Mac, or connect it with a cable.")
         case .unauthorised:

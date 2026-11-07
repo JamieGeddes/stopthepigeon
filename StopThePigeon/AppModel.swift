@@ -26,11 +26,17 @@ final class AppModel {
 
     private var playbackTask: Task<Void, Never>?
     private var pendingSave: Task<Void, Never>?
+    /// Stops the Mac's display sleeping during long gaps between shots.
+    private var keepAwake: NSObjectProtocol?
 
     var frames: [String] { project?.frames ?? [] }
     var lastFrameURL: URL? { project.flatMap { p in p.frames.last.map(p.url(for:)) } }
 
     func launch() async {
+        keepAwake = ProcessInfo.processInfo.beginActivity(
+            options: [.idleDisplaySleepDisabled, .idleSystemSleepDisabled],
+            reason: "Shooting stop motion"
+        )
         openLastOrDefaultProject()
         await camera.start()
     }
