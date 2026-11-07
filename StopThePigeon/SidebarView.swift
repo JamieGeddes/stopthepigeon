@@ -6,6 +6,7 @@ struct SidebarView: View {
     var body: some View {
         Form {
             cameraSection
+            effectsSection
             onionSkinSection
             frameSection
             playbackSection
@@ -47,6 +48,44 @@ struct SidebarView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var effectsSection: some View {
+        Section("Effects") {
+            Toggle("Green screen", isOn: $model.greenScreen.enabled)
+            if model.greenScreen.enabled {
+                Picker("Screen colour", selection: $model.greenScreen.keyColour) {
+                    ForEach(GreenScreenSettings.KeyColour.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                LabeledContent("Backdrop") {
+                    if let url = model.project?.backdropURL {
+                        FrameImageView(url: url, maxPixelSize: 240, cache: model.images, contentMode: .fill)
+                            .frame(width: 64, height: 40)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    } else {
+                        Text("None").foregroundStyle(.secondary)
+                    }
+                }
+                HStack {
+                    Button(model.greenScreen.backdrop == nil ? "Choose…" : "Change…") { model.chooseBackdrop() }
+                    if model.greenScreen.backdrop != nil {
+                        Button("Remove") { model.removeBackdrop() }
+                    }
+                }
+
+                Slider(value: $model.greenScreen.tolerance, in: 0...1) { Text("Tolerance") }
+                    .help("Increase if patches of screen show through; decrease if parts of characters vanish.")
+                Slider(value: $model.greenScreen.softness, in: 0...1) { Text("Edge softness") }
+                Slider(value: $model.greenScreen.spillSuppression, in: 0...1) { Text("Spill removal") }
+                    .help("Removes the coloured fringe the screen reflects onto characters.")
+                Text("Light the screen evenly and avoid that colour on your characters.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .disabled(model.project == nil)
     }
 
     private var onionSkinSection: some View {

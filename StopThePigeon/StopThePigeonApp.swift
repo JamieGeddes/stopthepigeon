@@ -21,6 +21,18 @@ struct StopThePigeonApp: App {
                     .keyboardShortcut("e")
                     .disabled(model.frames.isEmpty)
             }
+            CommandMenu("Effects") {
+                Toggle("Green Screen", isOn: $model.greenScreen.enabled)
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                Picker("Screen Colour", selection: $model.greenScreen.keyColour) {
+                    ForEach(GreenScreenSettings.KeyColour.allCases) { Text($0.label).tag($0) }
+                }
+                .disabled(!model.greenScreen.enabled)
+                Divider()
+                Button("Choose Backdrop…") { model.chooseBackdrop() }
+                Button("Remove Backdrop") { model.removeBackdrop() }
+                    .disabled(model.greenScreen.backdrop == nil)
+            }
         }
     }
 }

@@ -25,6 +25,7 @@ final class AppModel {
     var errorMessage: String?
 
     private var playbackTask: Task<Void, Never>?
+    private var pendingSave: Task<Void, Never>?
 
     var frames: [String] { project?.frames ?? [] }
     var lastFrameURL: URL? { project.flatMap { p in p.frames.last.map(p.url(for:)) } }
@@ -82,8 +83,14 @@ final class AppModel {
 
     private func setProject(_ newProject: StopMotionProject) {
         stopPlayback()
+        if pendingSave != nil {
+            pendingSave?.cancel()
+            pendingSave = nil
+            try? project?.save()
+        }
         project = newProject
         selectedFrame = nil
+        camera.effectPreview.update(effect: newProject.effect)
         UserDefaults.standard.set(newProject.folder.path, forKey: Self.lastProjectKey)
     }
 
@@ -181,12 +188,13 @@ final class AppModel {
         let urls = project.frameURLs
         let fps = project.fps
         let preset = exportPreset
+        let effect = project.effect
         exportProgress = 0
 
         Task {
             do {
                 try await Task.detached(priority: .userInitiated) {
-                    try await MovieExporter.export(frameURLs: urls, fps: fps, preset: preset, to: url) { value in
+                    try await MovieExporter.export(frameURLs: urls, fps: fps, preset: preset, effect: effect, to: url) { value in
                         Task { @MainActor in self.exportProgress = value }
                     }
                 }.value
@@ -196,6 +204,60 @@ final class AppModel {
                 exportProgress = nil
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    // MARK: Effects
+
+    /// The project's effect, or nil when no effect is active.
+    var activeEffect: FrameEffect? {
+        guard let effect = project?.effect, effect.isActive else { return nil }
+        return effect
+    }
+
+    /// Green screen settings for the current project. Changes apply immediately;
+    /// saving is debounced so dragging a slider doesn't rewrite the manifest each step.
+    var greenScreen: GreenScreenSettings {
+        get { project?.greenScreen ?? GreenScreenSettings() }
+        set {
+            guard project != nil, newValue != project?.greenScreen else { return }
+            project?.greenScreen = newValue
+            effectsChanged()
+            scheduleSave()
+        }
+    }
+
+    func chooseBackdrop() {
+        guard project != nil else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choose Backdrop"
+        panel.message = "Choose an image to show behind your characters."
+        panel.allowedContentTypes = [.jpeg, .png, .heic]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        perform {
+            try self.project?.setBackdrop(copying: url)
+            self.project?.greenScreen.enabled = true
+            try self.project?.save()
+        }
+        effectsChanged()
+    }
+
+    func removeBackdrop() {
+        perform { try self.project?.removeBackdrop() }
+        effectsChanged()
+    }
+
+    private func effectsChanged() {
+        camera.effectPreview.update(effect: project?.effect)
+    }
+
+    private func scheduleSave() {
+        pendingSave?.cancel()
+        pendingSave = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let self else { return }
+            self.perform { try self.project?.save() }
         }
     }
 

@@ -63,11 +63,13 @@ enum MovieExportError: LocalizedError {
 }
 
 enum MovieExporter {
-    /// Encodes the frames, in order, into an MP4 at `fps` frames per second.
+    /// Encodes the frames, in order, into an MP4 at `fps` frames per second,
+    /// applying `effect` to each frame if it's active.
     static func export(
         frameURLs: [URL],
         fps: Int,
         preset: ExportPreset,
+        effect: FrameEffect? = nil,
         to outputURL: URL,
         progress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
@@ -119,7 +121,7 @@ enum MovieExporter {
                 }
                 try await Task.sleep(for: .milliseconds(5))
             }
-            guard let image = ImageLoading.cgImage(at: url, maxPixelSize: maxPixelSize) else {
+            guard let image = FrameRenderer.shared.renderFrame(at: url, maxPixelSize: maxPixelSize, effect: effect) else {
                 writer.cancelWriting()
                 throw MovieExportError.unreadableFrame(url)
             }
