@@ -21,7 +21,7 @@ struct ContentView: View {
 
             Divider()
             SidebarView(model: model)
-                .frame(width: 290)
+                .frame(width: 320)
         }
         .frame(minWidth: 960, minHeight: 640)
         .navigationTitle(model.project?.name ?? "Stop the Pigeon")

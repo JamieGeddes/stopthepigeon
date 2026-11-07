@@ -20,22 +20,32 @@ struct SidebarView: View {
 
     private var cameraSection: some View {
         Section("Camera") {
-            Picker("Source", selection: Binding(
-                get: { model.camera.selectedDeviceID ?? "" },
-                set: { model.camera.selectDevice(id: $0) }
-            )) {
-                if model.camera.devices.isEmpty { Text("None").tag("") }
-                ForEach(model.camera.devices, id: \.uniqueID) { device in
-                    Text(device.localizedName).tag(device.uniqueID)
+            // Label above the menu: camera names are long and the menu won't shrink
+            // to fit beside a label.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Source")
+                Picker("Source", selection: Binding(
+                    get: { model.camera.selectedDeviceID ?? "" },
+                    set: { model.camera.selectDevice(id: $0) }
+                )) {
+                    if model.camera.devices.isEmpty { Text("None").tag("") }
+                    ForEach(model.camera.devices, id: \.uniqueID) { device in
+                        Text(device.localizedName).tag(device.uniqueID)
+                    }
                 }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             if !model.camera.photoSizeDescription.isEmpty {
                 LabeledContent("Photo size", value: model.camera.photoSizeDescription)
             }
             if let warning = model.camera.effectsWarning {
-                Label(warning, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .font(.callout)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(warning).wrapping()
+                }
+                .foregroundStyle(.orange)
+                .font(.callout)
             }
 
             lockToggle("Lock focus", model.camera.focus, model.camera.setFocusLocked)
@@ -44,8 +54,7 @@ struct SidebarView: View {
             if model.camera.status == .running,
                !(model.camera.focus.supported || model.camera.exposure.supported || model.camera.whiteBalance.supported) {
                 Text("This camera doesn't allow locking. Use steady lighting and block out daylight to avoid flicker.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .caption()
             }
         }
     }
@@ -81,8 +90,7 @@ struct SidebarView: View {
                 Slider(value: $model.greenScreen.spillSuppression, in: 0...1) { Text("Spill removal") }
                     .help("Removes the coloured fringe the screen reflects onto characters.")
                 Text("Light the screen evenly and avoid that colour on your characters.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .caption()
             }
         }
         .disabled(model.project == nil)
@@ -107,8 +115,7 @@ struct SidebarView: View {
             Button("Delete Frame", role: .destructive) { model.deleteSelectedFrame() }
                 .keyboardShortcut(.delete, modifiers: .command)
             Text("Deleted frames go to the project's “Deleted Frames” folder.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .caption()
         }
         .disabled(model.selectedFrame == nil || model.isPlaying)
     }
@@ -142,7 +149,12 @@ struct SidebarView: View {
     private var projectSection: some View {
         Section("Project") {
             if let project = model.project {
-                LabeledContent("Name", value: project.name)
+                LabeledContent("Name") {
+                    Text(project.name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(project.name)
+                }
                 Button("Show in Finder") { model.showProjectInFinder() }
             }
             HStack {
@@ -155,5 +167,16 @@ struct SidebarView: View {
     private func lockToggle(_ title: String, _ capability: CameraController.Capability, _ set: @escaping (Bool) -> Void) -> some View {
         Toggle(title, isOn: Binding(get: { capability.locked }, set: set))
             .disabled(!capability.supported)
+    }
+}
+
+private extension Text {
+    /// Wraps onto as many lines as needed instead of widening the sidebar.
+    func wrapping() -> some View {
+        fixedSize(horizontal: false, vertical: true)
+    }
+
+    func caption() -> some View {
+        font(.caption).foregroundStyle(.secondary).wrapping()
     }
 }
