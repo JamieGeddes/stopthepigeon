@@ -75,7 +75,21 @@ private struct StageView: View {
     }
 
     var body: some View {
+        // GeometryReader takes exactly the space it's offered and its contents can't
+        // change that, so nothing on stage can push the sidebar out of the window.
+        GeometryReader { geometry in
+            let size = Self.fit(aspect: model.camera.videoAspect, in: geometry.size)
+            stage
+                .frame(width: size.width, height: size.height)
+                .clipped()
+                .overlay(alignment: .topLeading) { badges }
+                .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+        }
+    }
+
+    private var stage: some View {
         ZStack {
+            Color.black
             if let url = stageFrameURL {
                 FrameImageView(url: url, maxPixelSize: 2048, cache: model.images, effect: model.activeEffect)
             } else {
@@ -85,25 +99,33 @@ private struct StageView: View {
                     CameraPreviewView(session: model.camera.session)
                 }
                 if model.onionSkinEnabled, let last = model.lastFrameURL {
-                    FrameImageView(url: last, maxPixelSize: 2048, cache: model.images, effect: model.activeEffect, contentMode: .fill)
+                    // Fit, not fill: when photos are wider than the video (16:9 stills
+                    // from a 4:3 feed) they're a centre crop of it, so matching widths
+                    // lines the previous frame up with the live view.
+                    FrameImageView(url: last, maxPixelSize: 2048, cache: model.images, effect: model.activeEffect)
                         .opacity(model.onionSkinOpacity)
                         .allowsHitTesting(false)
                 }
                 CameraStatusOverlay(status: model.camera.status)
             }
         }
-        .aspectRatio(model.camera.videoAspect, contentMode: .fit)
-        .background(.black)
-        .clipped()
-        .overlay(alignment: .topLeading) {
-            HStack(spacing: 6) {
-                badge(stageLabel)
-                if model.activeEffect != nil {
-                    badge(model.greenScreen.backdrop == nil ? "Green screen: no backdrop" : "Green screen")
-                }
+    }
+
+    private var badges: some View {
+        HStack(spacing: 6) {
+            badge(stageLabel)
+            if model.activeEffect != nil {
+                badge(model.greenScreen.backdrop == nil ? "Green screen: no backdrop" : "Green screen")
             }
-            .padding(10)
         }
+        .padding(10)
+    }
+
+    /// The largest size with the given aspect ratio that fits in `bounds`.
+    static func fit(aspect: Double, in bounds: CGSize) -> CGSize {
+        guard aspect > 0, bounds.width > 0, bounds.height > 0 else { return .zero }
+        let width = min(bounds.width, bounds.height * aspect)
+        return CGSize(width: width, height: width / aspect)
     }
 
     private func badge(_ text: String) -> some View {
