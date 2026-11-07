@@ -255,6 +255,7 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clumsypenguin.StopThePigeon;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "StopThePigeon/StopThePigeon-Bridging-Header.h";
 			};
 			name = Debug;
 		};
@@ -280,6 +281,7 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.clumsypenguin.StopThePigeon;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "StopThePigeon/StopThePigeon-Bridging-Header.h";
 			};
 			name = Release;
 		};
