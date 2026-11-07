@@ -1,18 +1,22 @@
 import Foundation
 
 /// A stop-motion project is a folder of image files plus a `project.json`
-/// recording the frame order and playback rate.
+/// recording the frame order, playback rate and effect settings.
 struct StopMotionProject: Equatable {
     static let manifestName = "project.json"
     static let deletedFolderName = "Deleted Frames"
     static let imageExtensions: Set<String> = ["jpg", "jpeg", "heic", "png"]
+    static let backdropPrefix = "backdrop-"
 
     let folder: URL
     var fps: Int
     var frames: [String]
+    var greenScreen = GreenScreenSettings()
 
     var name: String { folder.lastPathComponent }
     var frameURLs: [URL] { frames.map(url(for:)) }
+    var backdropURL: URL? { greenScreen.backdrop.map(url(for:)) }
+    var effect: FrameEffect { FrameEffect(greenScreen: greenScreen, backdropURL: backdropURL) }
 
     func url(for frame: String) -> URL {
         folder.appendingPathComponent(frame)
@@ -38,10 +42,15 @@ struct StopMotionProject: Equatable {
             project.frames = manifest.frames.filter {
                 project.isContainedFrame($0) && FileManager.default.fileExists(atPath: project.url(for: $0).path)
             }
+            project.greenScreen = manifest.greenScreen ?? GreenScreenSettings()
+            if let backdrop = project.greenScreen.backdrop,
+               !(project.isContainedFrame(backdrop) && FileManager.default.fileExists(atPath: project.url(for: backdrop).path)) {
+                project.greenScreen.backdrop = nil
+            }
             return project
         }
 
-        let images = try imageFiles(in: folder).sorted {
+        let images = try imageFiles(in: folder).filter { !$0.hasPrefix(backdropPrefix) }.sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         }
         let project = StopMotionProject(folder: folder, fps: 12, frames: images)
@@ -52,7 +61,7 @@ struct StopMotionProject: Equatable {
     func save() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(Manifest(version: 1, fps: fps, frames: frames))
+        let data = try encoder.encode(Manifest(version: 1, fps: fps, frames: frames, greenScreen: greenScreen))
         try data.write(to: folder.appendingPathComponent(Self.manifestName), options: .atomic)
     }
 
@@ -102,6 +111,32 @@ struct StopMotionProject: Equatable {
         try save()
     }
 
+    /// Copies an image into the project as the green screen backdrop, replacing any
+    /// previous one. The copy gets a unique name so cached renders are refreshed.
+    mutating func setBackdrop(copying source: URL) throws {
+        let ext = source.pathExtension.lowercased()
+        guard Self.imageExtensions.contains(ext) else { throw ProjectError.unsupportedImage(source.lastPathComponent) }
+        let name = "\(Self.backdropPrefix)\(UUID().uuidString.prefix(8)).\(ext)"
+        try FileManager.default.copyItem(at: source, to: url(for: name))
+        try removeBackdropFile()
+        greenScreen.backdrop = name
+        try save()
+    }
+
+    mutating func removeBackdrop() throws {
+        try removeBackdropFile()
+        greenScreen.backdrop = nil
+        try save()
+    }
+
+    private func removeBackdropFile() throws {
+        guard let backdrop = greenScreen.backdrop, isContainedFrame(backdrop) else { return }
+        let fileURL = url(for: backdrop)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
     // MARK: Validation
 
     static func clampedFPS(_ value: Int) -> Int {
@@ -130,6 +165,7 @@ struct StopMotionProject: Equatable {
         var version: Int
         var fps: Int
         var frames: [String]
+        var greenScreen: GreenScreenSettings?
     }
 
     private static func imageFiles(in folder: URL) throws -> [String] {
@@ -152,10 +188,12 @@ struct StopMotionProject: Equatable {
 
 enum ProjectError: LocalizedError {
     case invalidFrameName(String)
+    case unsupportedImage(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidFrameName(let name): "“\(name)” isn't a frame inside this project."
+        case .unsupportedImage(let name): "“\(name)” isn't a supported image. Use JPEG, PNG or HEIC."
         }
     }
 }

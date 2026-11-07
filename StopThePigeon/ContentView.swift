@@ -49,11 +49,15 @@ private struct StageView: View {
     var body: some View {
         ZStack {
             if let url = stageFrameURL {
-                FrameImageView(url: url, maxPixelSize: 2048, cache: model.images)
+                FrameImageView(url: url, maxPixelSize: 2048, cache: model.images, effect: model.activeEffect)
             } else {
-                CameraPreviewView(session: model.camera.session)
+                if model.activeEffect != nil {
+                    EffectPreviewView(renderer: model.camera.effectPreview)
+                } else {
+                    CameraPreviewView(session: model.camera.session)
+                }
                 if model.onionSkinEnabled, let last = model.lastFrameURL {
-                    FrameImageView(url: last, maxPixelSize: 2048, cache: model.images, contentMode: .fill)
+                    FrameImageView(url: last, maxPixelSize: 2048, cache: model.images, effect: model.activeEffect, contentMode: .fill)
                         .opacity(model.onionSkinOpacity)
                         .allowsHitTesting(false)
                 }
@@ -64,13 +68,22 @@ private struct StageView: View {
         .background(.black)
         .clipped()
         .overlay(alignment: .topLeading) {
-            Text(stageLabel)
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.ultraThinMaterial, in: Capsule())
-                .padding(10)
+            HStack(spacing: 6) {
+                badge(stageLabel)
+                if model.activeEffect != nil {
+                    badge(model.greenScreen.backdrop == nil ? "Green screen: no backdrop" : "Green screen")
+                }
+            }
+            .padding(10)
         }
+    }
+
+    private func badge(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.ultraThinMaterial, in: Capsule())
     }
 
     private var stageLabel: String {

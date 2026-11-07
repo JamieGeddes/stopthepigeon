@@ -30,5 +30,16 @@ xcodebuild test -project StopThePigeon.xcodeproj -scheme StopThePigeon -destinat
 | ⌥← / ⌥→ | Move the selected frame |
 | ⌘⌫ | Delete the selected frame (moved to the project's "Deleted Frames" folder) |
 | ⌘E | Export movie |
+| ⇧⌘G | Toggle green screen |
+
+## Green screen
+
+**Effects > Green Screen** replaces a green or blue background with a backdrop image of your choice.
+
+1. Put a green (or blue) screen behind the set and light it evenly. Avoid that colour on your characters.
+2. **Effects > Choose Backdrop…** and pick a JPEG, PNG or HEIC. It's copied into the project folder.
+3. Adjust **Tolerance**, **Edge softness** and **Spill removal** in the sidebar while watching the live view.
+
+The effect is non-destructive: captured frames are stored unaltered and the key is applied when frames are displayed and exported, so you can change the settings or backdrop at any time.
 
 Projects are folders under `~/Movies/Stop the Pigeon/`. Each holds the captured JPEGs and a `project.json` with the frame order and frame rate.

@@ -15,7 +15,8 @@ struct FrameStripView: View {
                                 url: project.url(for: frame),
                                 number: index + 1,
                                 isSelected: model.selectedFrame == frame || model.playbackFrame == frame,
-                                cache: model.images
+                                cache: model.images,
+                                effect: model.activeEffect
                             )
                             .onTapGesture { model.stopPlayback(); model.selectedFrame = frame }
                             .contextMenu {
@@ -49,9 +50,10 @@ private struct FrameThumbnail: View {
     let number: Int
     let isSelected: Bool
     let cache: FrameImageCache
+    let effect: FrameEffect?
 
     var body: some View {
-        FrameImageView(url: url, maxPixelSize: 240, cache: cache, contentMode: .fill)
+        FrameImageView(url: url, maxPixelSize: 240, cache: cache, effect: effect, contentMode: .fill)
             .frame(width: 104, height: 78)
             .background(.black)
             .clipShape(RoundedRectangle(cornerRadius: 6))

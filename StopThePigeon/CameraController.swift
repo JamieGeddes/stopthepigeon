@@ -30,8 +30,12 @@ final class CameraController {
     private(set) var whiteBalance = Capability()
 
     let session = AVCaptureSession()
+    /// Renders the live view with effects applied (green screen).
+    let effectPreview = EffectPreviewRenderer()
     private let photoOutput = AVCapturePhotoOutput()
+    private let videoOutput = AVCaptureVideoDataOutput()
     private let sessionQueue = DispatchQueue(label: "com.clumsypenguin.StopThePigeon.session")
+    private let videoQueue = DispatchQueue(label: "com.clumsypenguin.StopThePigeon.video", qos: .userInteractive)
     private var inFlightCaptures: [Int64: PhotoCaptureDelegate] = [:]
     private var observers: [NSObjectProtocol] = []
     private var effectsTimer: Timer?
@@ -73,6 +77,9 @@ final class CameraController {
         let format = Self.bestPhotoFormat(for: device)
         let session = session
         let photoOutput = photoOutput
+        let videoOutput = videoOutput
+        let effectPreview = effectPreview
+        let videoQueue = videoQueue
 
         sessionQueue.async {
             do {
@@ -84,6 +91,13 @@ final class CameraController {
                 if !session.outputs.contains(photoOutput) {
                     guard session.canAddOutput(photoOutput) else { throw CameraError.cannotUseDevice }
                     session.addOutput(photoOutput)
+                }
+                // Optional: frames for the effects preview. Capture still works without it.
+                if !session.outputs.contains(videoOutput), session.canAddOutput(videoOutput) {
+                    videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+                    videoOutput.alwaysDiscardsLateVideoFrames = true
+                    videoOutput.setSampleBufferDelegate(effectPreview, queue: videoQueue)
+                    session.addOutput(videoOutput)
                 }
                 if let format {
                     try device.lockForConfiguration()
@@ -270,7 +284,7 @@ enum CameraError: LocalizedError {
     }
 }
 
-private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
     private let completion: (Result<Data, Error>) -> Void
 
     init(completion: @escaping (Result<Data, Error>) -> Void) {
