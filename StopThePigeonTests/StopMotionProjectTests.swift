@@ -64,6 +64,32 @@ import Testing
         #expect(name == "frame-0003.jpg")
     }
 
+    @Test func deletingLastFrameDoesNotReuseItsName() throws {
+        var project = try StopMotionProject.create(at: folder)
+        try project.appendFrame(data: Data([1]), fileExtension: "jpg")
+        try project.appendFrame(data: Data([2]), fileExtension: "jpg")
+        try project.deleteFrame("frame-0002.jpg")
+        let name = try project.appendFrame(data: Data([3]), fileExtension: "jpg")
+        #expect(name == "frame-0003.jpg")
+        #expect(try Data(contentsOf: project.url(for: name)) == Data([3]))
+    }
+
+    @Test func frameNumbersSurviveEmptyingDeletedFolderAndReopening() throws {
+        var project = try StopMotionProject.create(at: folder)
+        for byte in 1...3 { try project.appendFrame(data: Data([UInt8(byte)]), fileExtension: "jpg") }
+        try project.deleteFrame("frame-0003.jpg")
+        try FileManager.default.removeItem(at: folder.appendingPathComponent("Deleted Frames"))
+
+        var reopened = try StopMotionProject.open(at: folder)
+        #expect(try reopened.appendFrame(data: Data([4]), fileExtension: "jpg") == "frame-0004.jpg")
+    }
+
+    @Test func frameNumberParsesDeletedCopies() {
+        #expect(StopMotionProject.frameNumber(in: "frame-0012.jpg") == 12)
+        #expect(StopMotionProject.frameNumber(in: "frame-0012-1a2b3c4d.jpg") == 12)
+        #expect(StopMotionProject.frameNumber(in: "shot1.jpg") == nil)
+    }
+
     @Test func openAdoptsFolderOfImagesInNaturalOrder() throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for name in ["shot10.jpg", "shot2.jpg", "notes.txt", "shot1.JPG"] {
