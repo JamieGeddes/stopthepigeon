@@ -65,6 +65,18 @@ import UniformTypeIdentifiers
         }
     }
 
+    @Test func exportWithZeroFPSThrows() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("StopThePigeonExport-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let frame = try writeSolidJPEG(to: folder.appendingPathComponent("frame.jpg"), shade: 0.5)
+
+        await #expect(throws: MovieExportError.self) {
+            try await MovieExporter.export(frameURLs: [frame], fps: 0, preset: .hd1080, to: folder.appendingPathComponent("out.mp4"))
+        }
+    }
+
     private func writeSolidJPEG(to url: URL, shade: Double) throws -> URL {
         let context = try #require(CGContext(
             data: nil, width: 640, height: 480, bitsPerComponent: 8, bytesPerRow: 0,

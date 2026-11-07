@@ -33,10 +33,12 @@ struct StopMotionProject: Equatable {
         let manifestURL = folder.appendingPathComponent(manifestName)
         if FileManager.default.fileExists(atPath: manifestURL.path) {
             let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: manifestURL))
-            let existing = manifest.frames.filter {
-                FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path)
+            var project = StopMotionProject(folder: folder, fps: clampedFPS(manifest.fps), frames: [])
+            // Only accept entries that are image files inside the project folder.
+            project.frames = manifest.frames.filter {
+                project.isContainedFrame($0) && FileManager.default.fileExists(atPath: project.url(for: $0).path)
             }
-            return StopMotionProject(folder: folder, fps: manifest.fps, frames: existing)
+            return project
         }
 
         let images = try imageFiles(in: folder).sorted {
@@ -70,6 +72,7 @@ struct StopMotionProject: Equatable {
     /// subfolder so it can be recovered.
     mutating func deleteFrame(_ frame: String) throws {
         guard let index = frames.firstIndex(of: frame) else { return }
+        guard isContainedFrame(frame) else { throw ProjectError.invalidFrameName(frame) }
         let deletedFolder = folder.appendingPathComponent(Self.deletedFolderName)
         try FileManager.default.createDirectory(at: deletedFolder, withIntermediateDirectories: true)
 
@@ -95,8 +98,30 @@ struct StopMotionProject: Equatable {
     }
 
     mutating func setFPS(_ newValue: Int) throws {
-        fps = min(max(newValue, 1), 60)
+        fps = Self.clampedFPS(newValue)
         try save()
+    }
+
+    // MARK: Validation
+
+    static func clampedFPS(_ value: Int) -> Int {
+        min(max(value, 1), 60)
+    }
+
+    /// A plain image filename, with no path components or hidden-file prefix.
+    static func isValidFrameName(_ name: String) -> Bool {
+        !name.isEmpty
+            && !name.contains("/")
+            && !name.hasPrefix(".")
+            && imageExtensions.contains((name as NSString).pathExtension.lowercased())
+    }
+
+    /// True if `name` is a valid frame name whose file, after resolving symlinks,
+    /// sits directly inside the project folder.
+    func isContainedFrame(_ name: String) -> Bool {
+        guard Self.isValidFrameName(name) else { return false }
+        let resolvedParent = url(for: name).standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent()
+        return resolvedParent.path == folder.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     // MARK: Helpers
@@ -122,5 +147,15 @@ struct StopMotionProject: Equatable {
             return Int(stem.dropFirst("frame-".count))
         }
         return (numbers.max() ?? 0) + 1
+    }
+}
+
+enum ProjectError: LocalizedError {
+    case invalidFrameName(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidFrameName(let name): "“\(name)” isn't a frame inside this project."
+        }
     }
 }

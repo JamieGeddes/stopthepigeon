@@ -153,7 +153,7 @@ final class AppModel {
                 for frame in project.frames {
                     if Task.isCancelled { return }
                     self.playbackFrame = frame
-                    try? await Task.sleep(for: .seconds(1.0 / Double(project.fps)))
+                    try? await Task.sleep(for: .seconds(1.0 / Double(max(project.fps, 1))))
                 }
             } while self?.loopPlayback == true && !Task.isCancelled
             self?.stopPlayback()

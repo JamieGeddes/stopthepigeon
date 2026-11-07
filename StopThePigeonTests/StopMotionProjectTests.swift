@@ -74,6 +74,38 @@ import Testing
         #expect(project.fps == 12)
     }
 
+    @Test func openRejectsManifestEntriesOutsideFolder() throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let outside = folder.deletingLastPathComponent().appendingPathComponent("outside-\(UUID().uuidString).jpg")
+        try Data([0]).write(to: outside)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        try Data([0]).write(to: folder.appendingPathComponent("frame-0001.jpg"))
+        try Data([0]).write(to: folder.appendingPathComponent(".hidden.jpg"))
+        try Data([0]).write(to: folder.appendingPathComponent("notes.txt"))
+        try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent("link.jpg"), withDestinationURL: outside)
+
+        let manifest = """
+        {"version": 1, "fps": 12, "frames": ["../\(outside.lastPathComponent)", "\(outside.path)", \
+        ".hidden.jpg", "notes.txt", "link.jpg", "frame-0001.jpg"]}
+        """
+        try Data(manifest.utf8).write(to: folder.appendingPathComponent("project.json"))
+
+        #expect(try StopMotionProject.open(at: folder).frames == ["frame-0001.jpg"])
+    }
+
+    @Test func deleteRefusesFramesOutsideFolder() throws {
+        var project = StopMotionProject(folder: folder, fps: 12, frames: ["../escape.jpg"])
+        #expect(throws: ProjectError.self) { try project.deleteFrame("../escape.jpg") }
+    }
+
+    @Test(arguments: [(0, 1), (-5, 1), (500, 60), (24, 24)])
+    func openClampsManifestFPS(stored: Int, expected: Int) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let manifest = #"{"version": 1, "fps": \#(stored), "frames": []}"#
+        try Data(manifest.utf8).write(to: folder.appendingPathComponent("project.json"))
+        #expect(try StopMotionProject.open(at: folder).fps == expected)
+    }
+
     @Test func openSkipsFramesMissingFromDisk() throws {
         var project = try StopMotionProject.create(at: folder)
         try project.appendFrame(data: Data([1]), fileExtension: "jpg")

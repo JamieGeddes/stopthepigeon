@@ -48,12 +48,14 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
 enum MovieExportError: LocalizedError {
     case noFrames
+    case invalidFrameRate(Int)
     case unreadableFrame(URL)
     case writerFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .noFrames: "There are no frames to export."
+        case .invalidFrameRate(let fps): "\(fps) fps isn't a valid frame rate."
         case .unreadableFrame(let url): "Could not read \(url.lastPathComponent)."
         case .writerFailed(let reason): "Export failed: \(reason)"
         }
@@ -70,6 +72,7 @@ enum MovieExporter {
         progress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
         guard let first = frameURLs.first else { throw MovieExportError.noFrames }
+        guard fps > 0 else { throw MovieExportError.invalidFrameRate(fps) }
         guard let sourceSize = ImageLoading.orientedPixelSize(at: first) else {
             throw MovieExportError.unreadableFrame(first)
         }
