@@ -40,9 +40,9 @@ struct ContentView: View {
             }
         }
         .task {
-            // Show at least one full swoop of the net, then wait for the camera
-            // (up to 5 seconds) so the main window appears ready to shoot.
-            async let minimumTime: Void = Task.sleep(for: .seconds(PigeonChaseScene.period))
+            // Long enough to take in: two full swoops of the net. Then wait for the
+            // camera (up to 5 seconds more) so the main window appears ready to shoot.
+            async let minimumTime: Void = Task.sleep(for: .seconds(PigeonChaseScene.period * 2))
             await model.launch()
             try? await minimumTime
             let deadline = Date.now.addingTimeInterval(5)
@@ -59,7 +59,7 @@ struct ContentView: View {
 
     private func dismissSplash() {
         guard showSplash else { return }
-        withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
+        withAnimation(.easeInOut(duration: 0.8)) { showSplash = false }
     }
 }
 

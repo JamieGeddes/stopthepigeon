@@ -5,6 +5,9 @@ struct SplashView: View {
     var status: String
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The animation runs from when the splash appears, so it always starts with the
+    /// net winding up rather than part-way through a swoop.
+    @State private var start = Date.now
 
     var body: some View {
         ZStack {
@@ -15,7 +18,7 @@ struct SplashView: View {
                     // With reduced motion, hold the frame where the pigeon is mid-hop.
                     let time = reduceMotion
                         ? PigeonChaseScene.period * 0.5
-                        : timeline.date.timeIntervalSinceReferenceDate
+                        : timeline.date.timeIntervalSince(start)
                     Canvas { context, size in
                         PigeonChaseScene.draw(in: &context, size: size, time: time)
                     }
@@ -105,9 +108,10 @@ enum PigeonChaseScene {
         let hop = hopHeight(phase)
         drawShadow(in: context, hop: hop)
         // The net passes behind the pigeon, so its handle never cuts across the bird.
-        drawNet(in: context, phase: phase)
+        drawNet(in: context, pivot: netPivot, angle: netAngle(phase), reach: netReach(phase),
+                speedLines: phase > 0.42 && phase < 0.60)
         drawFeathers(in: context, phase: phase)
-        drawPigeon(in: context, phase: phase, time: time, hop: hop)
+        drawPigeon(in: context, at: CGPoint(x: pigeonX, y: groundY - 6 - hop), pose: pose(phase: phase, time: time, hop: hop))
     }
 
     // MARK: Timing
@@ -196,16 +200,39 @@ enum PigeonChaseScene {
 
     // MARK: Pigeon
 
-    private static func drawPigeon(in context: GraphicsContext, phase p: Double, time: Double, hop: CGFloat) {
-        var ctx = context
+    struct PigeonPose {
+        var airborne = false
+        var surprised = false
+        var bob: CGFloat = 0
+        var flap: Double = 0
+        var squash: CGFloat = 1
+        /// Size of the "!" from 0 to 1, or nil to hide it.
+        var exclamation: Double?
+    }
+
+    private static func pose(phase p: Double, time: Double, hop: CGFloat) -> PigeonPose {
         let airborne = hop > 1
-        ctx.translateBy(x: pigeonX, y: groundY - 6 - hop)
-        ctx.scaleBy(x: 1 / sqrt(squash(p)), y: squash(p))
+        return PigeonPose(
+            airborne: airborne,
+            surprised: p > 0.33 && p < 0.72,
+            bob: airborne ? 0 : CGFloat(sin(p * .pi * 4)) * 3,
+            flap: airborne ? sin(time * 45) * 0.7 - 0.35 : sin(time * 3) * 0.05,
+            squash: squash(p),
+            exclamation: p > 0.30 && p < 0.47 ? min((p - 0.30) / 0.04, 1) : nil
+        )
+    }
+
+    /// Draws the pigeon facing left with its feet at `origin`. Also used for the app icon.
+    static func drawPigeon(in context: GraphicsContext, at origin: CGPoint, pose: PigeonPose) {
+        var ctx = context
+        let airborne = pose.airborne
+        ctx.translateBy(x: origin.x, y: origin.y)
+        ctx.scaleBy(x: 1 / sqrt(pose.squash), y: pose.squash)
         if airborne { ctx.rotate(by: .radians(-0.12)) }
 
-        let surprised = p > 0.33 && p < 0.72
-        let bob: CGFloat = airborne ? 0 : CGFloat(sin(p * .pi * 4)) * 3
-        let flap: Double = airborne ? sin(time * 45) * 0.7 - 0.35 : sin(time * 3) * 0.05
+        let surprised = pose.surprised
+        let bob = pose.bob
+        let flap = pose.flap
 
         // Legs: standing, or tucked up in the air.
         var legs = Path()
@@ -281,8 +308,7 @@ enum PigeonChaseScene {
         ctx.fill(Path(ellipseIn: CGRect(x: eyeCentre.x - 0.5, y: eyeCentre.y - 3, width: 2.4, height: 2.4)), with: .color(.white))
 
         // "!" as it spots the net.
-        if p > 0.30 && p < 0.47 {
-            let pop = min((p - 0.30) / 0.04, 1)
+        if let pop = pose.exclamation {
             ctx.draw(
                 Text("!").font(.system(size: 26 * pop, weight: .black, design: .rounded)).foregroundStyle(Color(red: 0.86, green: 0.22, blue: 0.2)),
                 at: CGPoint(x: -24, y: -124)
@@ -309,16 +335,15 @@ enum PigeonChaseScene {
 
     // MARK: Net
 
-    private static func drawNet(in context: GraphicsContext, phase p: Double) {
-        let angle = netAngle(p)
-        let reach = netReach(p)
-
+    /// Draws the net swinging from `pivot`; `angle` is in radians from straight down.
+    /// Also used for the app icon.
+    static func drawNet(in context: GraphicsContext, pivot netPivot: CGPoint, angle: Double, reach: CGFloat, speedLines: Bool) {
         // Speed lines trailing the hoop during the swoop.
-        if p > 0.42 && p < 0.60 {
+        if speedLines {
             let direction = Double.pi / 2 - angle
             var streaks = Path()
             for offset: CGFloat in [-22, 0, 22] {
-                streaks.addArc(center: netPivot, radius: netRadius + offset,
+                streaks.addArc(center: netPivot, radius: reach + offset,
                                startAngle: .radians(direction + 0.07), endAngle: .radians(direction + 0.28), clockwise: false)
             }
             context.stroke(streaks, with: .color(.white.opacity(0.85)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
