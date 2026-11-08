@@ -248,6 +248,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Stop the Pigeon";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Stop the Pigeon uses the camera to capture stop-motion frames.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Stop the Pigeon listens for you saying “Now” to capture a frame, when voice control is on.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Stop the Pigeon recognises the word “Now” on this Mac to capture a frame, when voice control is on.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -275,6 +277,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Stop the Pigeon";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Stop the Pigeon uses the camera to capture stop-motion frames.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Stop the Pigeon listens for you saying “Now” to capture a frame, when voice control is on.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Stop the Pigeon recognises the word “Now” on this Mac to capture a frame, when voice control is on.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
