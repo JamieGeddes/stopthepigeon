@@ -161,7 +161,14 @@ final class VoiceControl {
             at: now,
             lastCapture: lastCapture
         )
-        voiceLog.notice("heard \"\(utterance.transcript, privacy: .public)\" confidence \(utterance.confidence ?? -1, format: .fixed(precision: 2)) duration \(utterance.duration, format: .fixed(precision: 2))s → \(String(describing: decision), privacy: .public)")
+        // What was said is personal: it goes only to the debug level, which macOS doesn't
+        // store on disk, and is redacted outside Debug builds.
+        voiceLog.notice("utterance: \(VoiceCommand.words(in: utterance.transcript).count) words, confidence \(utterance.confidence ?? -1, format: .fixed(precision: 2)), duration \(utterance.duration, format: .fixed(precision: 2))s → \(String(describing: decision), privacy: .public)")
+        #if DEBUG
+        voiceLog.debug("transcript: \"\(utterance.transcript, privacy: .public)\"")
+        #else
+        voiceLog.debug("transcript: \"\(utterance.transcript, privacy: .private)\"")
+        #endif
         switch decision {
         case .capture:
             lastCapture = now
