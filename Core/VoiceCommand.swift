@@ -2,7 +2,10 @@ import Foundation
 
 /// Splits a stream of audio levels (dB) into speech segments.
 ///
-/// - Adapts to background noise, so a fan or traffic doesn't count as speech.
+/// - Adapts to background noise, so a fan or traffic doesn't count as speech. The level
+///   is smoothed first: real rooms fluctuate, and following the quietest instants would
+///   put the floor below the typical background, so the background would never let a
+///   word end.
 /// - Needs a short run of loud audio to start, so clicks and knocks don't.
 /// - Uses a lower threshold to stay in speech than to start (hysteresis), so a word
 ///   doesn't flicker on and off.
@@ -14,17 +17,23 @@ struct VoiceActivityDetector {
     }
 
     var startMargin: Double = 15
-    var endMargin: Double = 9
+    var endMargin: Double = 10
     /// Never treat audio quieter than this as speech, however quiet the room.
     var absoluteMinimum: Double = -55
     var minimumOnset: Double = 0.05
     var hangover: Double = 0.45
-    var floorRisePerSecond: Double = 1.0
+    /// Time constant for the smoothed level used for the noise floor and end of speech.
+    var smoothing: Double = 0.12
+    /// How quickly the floor follows the background down, and how fast it may rise.
+    var floorFallTime: Double = 0.4
+    var floorRisePerSecond: Double = 1.5
     /// Continuous "speech" longer than this is treated as a change in background noise.
     var maximumSpeech: Double = 8
 
     private(set) var noiseFloor: Double = -60
+    private(set) var smoothedLevel: Double = -60
     private(set) var isSpeaking = false
+    private(set) var peakLevel: Double = -120
     private var aboveSince: Double?
     private var speechStart: Double = 0
     private var lastAbove: Double = 0
@@ -32,26 +41,38 @@ struct VoiceActivityDetector {
 
     mutating func process(level rawLevel: Double, at time: Double) -> Event? {
         let level = rawLevel.isFinite ? max(rawLevel, -120) : -120
-        let elapsed = lastTime.map { max(time - $0, 0) } ?? 0
-        if lastTime == nil { noiseFloor = level }
+        guard let previous = lastTime else {
+            lastTime = time
+            noiseFloor = level
+            smoothedLevel = level
+            return nil
+        }
+        let elapsed = max(time - previous, 0)
         lastTime = time
+        smoothedLevel += (level - smoothedLevel) * min(elapsed / smoothing, 1)
 
         if !isSpeaking {
-            // Follow the background level: down at once, up slowly.
-            noiseFloor = level < noiseFloor ? level : min(noiseFloor + floorRisePerSecond * elapsed, level)
+            if smoothedLevel < noiseFloor {
+                noiseFloor += (smoothedLevel - noiseFloor) * min(elapsed / floorFallTime, 1)
+            } else {
+                noiseFloor = min(noiseFloor + floorRisePerSecond * elapsed, smoothedLevel)
+            }
         }
         let startThreshold = max(noiseFloor + startMargin, absoluteMinimum)
         let endThreshold = max(noiseFloor + endMargin, absoluteMinimum - 6)
 
         if isSpeaking {
+            peakLevel = max(peakLevel, level)
             if time - speechStart > maximumSpeech {
                 // Steady loud sound, not speech: recalibrate to it.
-                noiseFloor = level
+                noiseFloor = smoothedLevel
                 isSpeaking = false
                 aboveSince = nil
                 return .speechEnded(start: speechStart, end: time)
             }
-            if level >= endThreshold {
+            // Raw level keeps speech going (words are bursty); the smoothed level must
+            // also have dropped before the pause counts, so background spikes don't.
+            if level >= endThreshold && smoothedLevel >= endThreshold {
                 lastAbove = time
             } else if time - lastAbove >= hangover {
                 isSpeaking = false
@@ -71,6 +92,7 @@ struct VoiceActivityDetector {
         isSpeaking = true
         speechStart = since
         lastAbove = time
+        peakLevel = level
         return .speechStarted(at: since)
     }
 }

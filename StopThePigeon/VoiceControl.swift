@@ -1,6 +1,11 @@
 @preconcurrency import AVFoundation
 import Observation
+import os
 import Speech
+
+/// Voice control diagnostics. View with:
+/// `/usr/bin/log stream --predicate 'subsystem == "com.clumsypenguin.StopThePigeon" AND category == "voice"'`
+let voiceLog = Logger(subsystem: "com.clumsypenguin.StopThePigeon", category: "voice")
 
 /// Listens for the user saying "Now" on its own and calls `onCommand`.
 ///
@@ -156,6 +161,7 @@ final class VoiceControl {
             at: now,
             lastCapture: lastCapture
         )
+        voiceLog.notice("heard \"\(utterance.transcript, privacy: .public)\" confidence \(utterance.confidence ?? -1, format: .fixed(precision: 2)) duration \(utterance.duration, format: .fixed(precision: 2))s → \(String(describing: decision), privacy: .public)")
         switch decision {
         case .capture:
             lastCapture = now
@@ -220,8 +226,9 @@ final class UtteranceProcessor: @unchecked Sendable {
 
     /// Audio kept from just before speech is detected, so the start of "now" isn't lost.
     private static let preRollSeconds = 0.35
-    /// Stop recognising speech that has clearly gone on too long to be a command.
-    private static let maximumListen = 1.6
+    /// Stop sending audio for speech that has clearly gone on too long to be a command.
+    /// Recognition still finishes, so the sidebar can show what was heard.
+    private static let maximumListen = 3.0
     private static let levelReportInterval = 1.0 / 15
 
     private let sampleRate: Double
@@ -252,9 +259,11 @@ final class UtteranceProcessor: @unchecked Sendable {
         clock += duration
 
         switch detector.process(level: level, at: clock) {
-        case .speechStarted:
+        case .speechStarted(let start):
+            voiceLog.debug("speech started at \(start, format: .fixed(precision: 2))s, floor \(self.detector.noiseFloor, format: .fixed(precision: 1)) dB")
             beginUtterance()
         case .speechEnded(let start, let end):
+            voiceLog.info("speech ended: \(end - start, format: .fixed(precision: 2))s, peak \(self.detector.peakLevel, format: .fixed(precision: 1)) dB, floor \(self.detector.noiseFloor, format: .fixed(precision: 1)) dB")
             finishUtterance(duration: end - start)
         case nil:
             break
@@ -263,9 +272,9 @@ final class UtteranceProcessor: @unchecked Sendable {
         if let request {
             request.append(buffer)
             if clock - utteranceStart > Self.maximumListen {
-                // Far too long for "now": stop recognising, and report it when speech ends.
-                task?.cancel()
-                task = nil
+                // Far too long for "now": finish recognising what we have. The result is
+                // reported once speech ends and its duration is known.
+                request.endAudio()
                 self.request = nil
             }
         } else if let copy = Self.copy(buffer) {
@@ -296,7 +305,7 @@ final class UtteranceProcessor: @unchecked Sendable {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = false
-        request.taskHint = .confirmation
+        // No .confirmation hint: it biases towards "yes"/"no", and "now" sounds like "no".
         request.contextualStrings = [VoiceCommand.keyword]
         request.addsPunctuation = false
         for buffer in preRoll { request.append(buffer) }
@@ -307,7 +316,10 @@ final class UtteranceProcessor: @unchecked Sendable {
         let onUtterance = onUtterance
         task = recognizer.recognitionTask(with: request) { result, error in
             guard let result, result.isFinal, error == nil else {
-                if error != nil { pending.complete { _ in } }
+                if let error {
+                    voiceLog.info("recognition ended without a result: \(error.localizedDescription, privacy: .public)")
+                    pending.complete { _ in }
+                }
                 return
             }
             let confidences = result.bestTranscription.segments.map(\.confidence).filter { $0 > 0 }
@@ -326,15 +338,12 @@ final class UtteranceProcessor: @unchecked Sendable {
     private func finishUtterance(duration: Double) {
         guard let pending else { return }
         self.pending = nil
+        // The final result arrives in the task's handler; `pending` reports it once both
+        // the transcript and this duration are known.
+        request?.endAudio()
+        request = nil
+        task = nil
         pending.setDuration(duration)
-        if let request {
-            request.endAudio() // the final result arrives in the task's handler
-            self.request = nil
-            task = nil
-        } else {
-            // Recognition was stopped because the speech ran long.
-            onUtterance?(Utterance(transcript: "", confidence: nil, duration: duration))
-        }
     }
 
     private static func decibels(of buffer: AVAudioPCMBuffer) -> Double {

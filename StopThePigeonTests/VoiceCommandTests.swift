@@ -88,6 +88,31 @@ import Testing
         #expect(events.count == 2)
     }
 
+    @Test func wordEndsPromptlyInFluctuatingRoomNoise() {
+        // Real rooms aren't silent: background noise wanders a few dB either side of its
+        // average. The word must still end within about the pause length.
+        var detector = VoiceActivityDetector()
+        var generator = SeededRandom(seed: 42)
+        var events: [VoiceActivityDetector.Event] = []
+        var time = 0.0
+        func feed(seconds: Double, level: () -> Double) {
+            let end = time + seconds
+            while time < end - 1e-9 {
+                time += 0.021
+                if let event = detector.process(level: level(), at: time) { events.append(event) }
+            }
+        }
+        let ambient = { -58 + generator.gaussian() * 4 }
+        feed(seconds: 3, level: ambient)
+        feed(seconds: 0.4) { -25 + generator.gaussian() * 3 }
+        feed(seconds: 2, level: ambient)
+
+        let found = segments(events)
+        #expect(found.count == 1)
+        let duration = (found.first?.end ?? 0) - (found.first?.start ?? 0)
+        #expect(abs(duration - 0.4) < 0.15, "duration \(duration)")
+    }
+
     @Test func quietRoomStillNeedsRealVolume() {
         // Even in a silent room, very quiet sounds aren't speech.
         #expect(run([(-110, 1), (-75, 0.4), (-110, 1)]).isEmpty)
@@ -145,5 +170,22 @@ import Testing
 
     @Test func nowsSeparatedByAPauseAreSeparateUtterances() throws {
         #expect(try speechSegments(saying: "Now. [[slnc 1000]] Now.").count == 2)
+    }
+}
+
+/// Deterministic noise for tests.
+struct SeededRandom {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed }
+
+    mutating func next() -> Double {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return Double(state >> 11) / Double(1 << 53)
+    }
+
+    /// Standard normal sample (Box-Muller).
+    mutating func gaussian() -> Double {
+        let u1 = max(next(), 1e-12), u2 = next()
+        return (-2 * log(u1)).squareRoot() * cos(2 * .pi * u2)
     }
 }
