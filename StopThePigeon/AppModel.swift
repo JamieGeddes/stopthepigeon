@@ -8,6 +8,7 @@ final class AppModel {
     private static let lastProjectKey = "lastProjectPath"
 
     let camera = CameraController()
+    let voice = VoiceControl()
     let images = FrameImageCache()
 
     private(set) var project: StopMotionProject?
@@ -39,6 +40,19 @@ final class AppModel {
         )
         openLastOrDefaultProject()
         await camera.start()
+        voice.onCommand = { [weak self] in self?.captureFromVoice() }
+        await voice.restoreSavedSetting()
+    }
+
+    /// Captures when the user says "Now", with a sound so they know it worked
+    /// without looking at the screen.
+    private func captureFromVoice() {
+        guard camera.status == .running, !isCapturing, project != nil else { return }
+        let before = frames.count
+        Task {
+            await capture()
+            if frames.count > before { NSSound(named: "Tink")?.play() }
+        }
     }
 
     // MARK: Projects

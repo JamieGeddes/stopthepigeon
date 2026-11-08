@@ -6,6 +6,7 @@ struct SidebarView: View {
     var body: some View {
         Form {
             cameraSection
+            voiceSection
             effectsSection
             onionSkinSection
             frameSection
@@ -55,6 +56,51 @@ struct SidebarView: View {
                !(model.camera.focus.supported || model.camera.exposure.supported || model.camera.whiteBalance.supported) {
                 Text("This camera doesn't allow locking. Use steady lighting and block out daylight to avoid flicker.")
                     .caption()
+            }
+        }
+    }
+
+    private var voiceSection: some View {
+        let voice = model.voice
+        return Section("Voice control") {
+            Toggle("Capture when I say “Now”", isOn: Binding(
+                get: { voice.isEnabled },
+                set: { enabled in Task { await voice.setEnabled(enabled) } }
+            ))
+            switch voice.state {
+            case .off:
+                EmptyView()
+            case .starting:
+                Label("Starting…", systemImage: "mic")
+                    .foregroundStyle(.secondary)
+            case .listening:
+                HStack(spacing: 8) {
+                    Image(systemName: voice.isHearingSpeech ? "waveform" : "mic.fill")
+                        .foregroundStyle(voice.isHearingSpeech ? Color.accentColor : .green)
+                        .frame(width: 18)
+                    Text(voice.isHearingSpeech ? "Hearing speech…" : "Listening")
+                    Spacer()
+                    LevelMeter(level: voice.level, active: voice.isHearingSpeech)
+                        .frame(width: 70, height: 6)
+                }
+                if let heard = voice.lastHeard {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: heard.accepted ? "checkmark.circle.fill" : "xmark.circle")
+                            .foregroundStyle(heard.accepted ? .green : .secondary)
+                        Text(heard.accepted ? "Heard “\(heard.text)”: captured" : "Ignored “\(heard.text)” (\(heard.note ?? ""))")
+                            .wrapping()
+                    }
+                    .font(.callout)
+                }
+                Text("Say “Now” on its own, then pause. Longer phrases, other words and noises are ignored. Speech is recognised on this Mac only.")
+                    .caption()
+            case .unavailable(let reason):
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(reason).wrapping()
+                }
+                .foregroundStyle(.orange)
+                .font(.callout)
             }
         }
     }
@@ -167,6 +213,24 @@ struct SidebarView: View {
     private func lockToggle(_ title: String, _ capability: CameraController.Capability, _ set: @escaping (Bool) -> Void) -> some View {
         Toggle(title, isOn: Binding(get: { capability.locked }, set: set))
             .disabled(!capability.supported)
+    }
+}
+
+private struct LevelMeter: View {
+    let level: Double
+    let active: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.2))
+                Capsule()
+                    .fill(active ? Color.accentColor : Color.green)
+                    .frame(width: geometry.size.width * level)
+            }
+        }
+        .animation(.linear(duration: 0.08), value: level)
+        .accessibilityHidden(true)
     }
 }
 

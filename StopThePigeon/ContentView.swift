@@ -222,6 +222,13 @@ private struct TransportBar: View {
             .disabled(model.frames.isEmpty)
             .help("Play or stop the preview (P)")
 
+            if model.voice.state == .listening {
+                Image(systemName: model.voice.isHearingSpeech ? "waveform" : "mic.fill")
+                    .foregroundStyle(model.voice.isHearingSpeech ? Color.accentColor : .green)
+                    .help("Voice control is on: say “Now” to capture")
+                    .accessibilityLabel("Voice control listening")
+            }
+
             Text("\(model.frames.count) frames · \(durationText)")
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
